@@ -1,0 +1,5 @@
+name: hyrz_ninja_info # 这是你的插件的唯一识别名。
+desc: 这是 AstrBot 的一个查询火影忍者忍者信息。 # 插件简短描述
+version: v1.0.0 # 插件版本号。格式：v1.1.1 或者 v1.1
+author: Cursor # 作者
+repo:  # 插件的仓库地址
