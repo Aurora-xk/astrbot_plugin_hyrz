@@ -15,7 +15,7 @@ import unicodedata
 import re
 import glob
 
-@register("hyrz_ninja_info", "YourName", "火影忍者手游忍者信息查询", "1.0.0")
+@register("astrbot_plugin_hyrz", "YourName", "astrbot_plugin_hyrz（火影忍者忍者信息查询）", "1.0.0")
 class NinjaInfoPlugin(Star):
     def __init__(self, context: Context):
         self.context = context
@@ -380,7 +380,7 @@ class NinjaInfoPlugin(Star):
             logger.error(f"详细页爬取忍者信息出错: {e}\n{traceback.format_exc()}")
             return None, None, None
 
-    @filter.command("删除忍者缓存")
+    @filter.command("删除头像缓存")
     async def delete_ninja_cache(self, event: AstrMessageEvent):
         """删除image文件夹下所有头像缓存"""
         deleted = 0
