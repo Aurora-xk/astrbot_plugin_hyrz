@@ -7,7 +7,6 @@ import os
 import hashlib
 import aiofiles
 
-import requests
 from bs4 import BeautifulSoup
 import traceback
 import json
@@ -36,16 +35,17 @@ class NinjaInfoPlugin(Star):
             return int(event.get_group_id())
         return None
 
-    def send_group_forward_msg(self, api_url, group_id, forward_nodes, logger):
+    async def send_group_forward_msg(self, api_url, group_id, forward_nodes, logger):
         url = f"{api_url}/send_group_forward_msg"
         data = {
             "group_id": group_id,
             "messages": forward_nodes
         }
         logger.info(f"[hyrz_ninja_info] Napcat合并转发API请求: {url} data={data}")
-        resp = requests.post(url, json=data)
-        logger.info(f"[hyrz_ninja_info] Napcat合并转发API响应: {resp.text}")
-        return resp.json()
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(url, json=data)
+            logger.info(f"[hyrz_ninja_info] Napcat合并转发API响应: {resp.text}")
+            return resp.json()
 
     @filter.command("忍者信息")
     async def ninja_info(self, event: AstrMessageEvent):
@@ -59,7 +59,7 @@ class NinjaInfoPlugin(Star):
             logger.warning("[hyrz_ninja_info] 未输入忍者名")
             yield event.plain_result("请在指令后输入忍者名字，例如：/忍者信息 鸣人")
             return
-        ninja_list = self.get_ninja_ids(ninja_name)
+        ninja_list = await self.get_ninja_ids(ninja_name)
         if not ninja_list:
             logger.warning(f"[hyrz_ninja_info] 未找到忍者：{ninja_name}")
             yield event.plain_result(f"未找到忍者：{ninja_name}")
@@ -78,7 +78,7 @@ class NinjaInfoPlugin(Star):
                     content=[Plain(tip)]
                 ))
             for rzwyID, rzzmc, rzfmc in batch:
-                info, avatar_url, _ = self.get_ninja_info_with_avatar_and_ayvideo(rzzmc + rzfmc)
+                info, avatar_url, _ = await self.get_ninja_info_with_avatar_and_ayvideo(rzzmc + rzfmc)
                 show_name = rzzmc if not rzfmc else f"{rzzmc} {rzfmc}"
                 avatar_path = None
                 if avatar_url:
@@ -108,7 +108,7 @@ class NinjaInfoPlugin(Star):
                 ))
             yield event.chain_result([nodes])
 
-    def get_ninja_ids(self, ninja_name: str):
+    async def get_ninja_ids(self, ninja_name: str):
         """
         返回所有模糊匹配的忍者ID和名字，格式[(rzwyID, rzzmc, rzfmc)]
         """
@@ -119,11 +119,11 @@ class NinjaInfoPlugin(Star):
                 "Referer": "https://hyrz.qq.com/cp/a20230308ren/index.shtml"
             }
             logger.info(f"[hyrz_ninja_info] 请求忍者列表: {url}")
-            response = requests.get(url, headers=headers, timeout=10)
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=headers, timeout=10)
             text = response.text.strip()
             if text.startswith("getNinjaList("):
                 text = text[len("getNinjaList("):-1]
-            import json
             data = json.loads(text)
             key = self.normalize_name(ninja_name)
             result = []
@@ -136,21 +136,8 @@ class NinjaInfoPlugin(Star):
                     result.append((str(ninja.get('rzwyID')), ninja.get('rzzmc', ''), ninja.get('rzfmc', '')))
             return result
         except Exception as e:
-            import traceback
             logger.error(f"忍者列表查找ID出错: {e}\n{traceback.format_exc()}")
             return []
-
-    def get_ninja_info(self, ninja_name: str) -> str:
-        logger.info(f"[hyrz_ninja_info] 开始查找忍者ID: {ninja_name}")
-        rzwyID = self.get_ninja_id(ninja_name)
-        logger.info(f"[hyrz_ninja_info] get_ninja_id返回: {rzwyID}")
-        if not rzwyID:
-            logger.warning(f"[hyrz_ninja_info] 未查到ID: {ninja_name}")
-            return None
-        logger.info(f"[hyrz_ninja_info] 查到ID: {rzwyID}")
-        detail = self.get_ninja_detail(rzwyID)
-        logger.info(f"[hyrz_ninja_info] get_ninja_detail返回: {detail[:100]}..." if detail else "[hyrz_ninja_info] get_ninja_detail返回None")
-        return detail
 
     def normalize_name(self, s):
         # 去除空格、全角/半角符号，只保留中文、英文、数字
@@ -158,7 +145,7 @@ class NinjaInfoPlugin(Star):
         s = re.sub(r'[「」\[\]（）()\s·,，。、《》:：]', '', s)
         return s.lower()
 
-    def get_ninja_id(self, ninja_name: str) -> str:
+    async def get_ninja_id(self, ninja_name: str) -> str:
         url = 'https://hyrz.qq.com/act/a20221108gjx/ninja-data/ninja_list.json'
         try:
             headers = {
@@ -166,11 +153,11 @@ class NinjaInfoPlugin(Star):
                 "Referer": "https://hyrz.qq.com/cp/a20230308ren/index.shtml"
             }
             logger.info(f"[hyrz_ninja_info] 请求忍者列表: {url}")
-            response = requests.get(url, headers=headers, timeout=10)
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=headers, timeout=10)
             text = response.text.strip()
             if text.startswith("getNinjaList("):
                 text = text[len("getNinjaList("):-1]
-            import json
             data = json.loads(text)
             key = self.normalize_name(ninja_name)
             # 先主名模糊匹配
@@ -196,12 +183,10 @@ class NinjaInfoPlugin(Star):
             logger.warning(f"[hyrz_ninja_info] 未找到忍者：{ninja_name}")
             return None
         except Exception as e:
-            import traceback
             logger.error(f"忍者列表查找ID出错: {e}\n{traceback.format_exc()}")
             return None
 
-    def get_ninja_detail(self, rzwyID: str) -> str:
-        import json
+    async def get_ninja_detail(self, rzwyID: str) -> str:
         url = f'https://hyrz.qq.com/act/a20221108gjx/ninja-data/{rzwyID}.json'
         try:
             headers = {
@@ -209,7 +194,8 @@ class NinjaInfoPlugin(Star):
                 "Referer": "https://hyrz.qq.com/cp/a20230308ren/index.shtml"
             }
             logger.info(f"[hyrz_ninja_info] 请求详细数据: {url}")
-            response = requests.get(url, headers=headers, timeout=10)
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=headers, timeout=10)
             logger.info(f"[hyrz_ninja_info] 详细数据HTTP状态: {response.status_code}")
             text = response.text.strip()
             if text.startswith("getNinjaData("):
@@ -290,23 +276,22 @@ class NinjaInfoPlugin(Star):
             logger.info(f"[hyrz_ninja_info] 详细数据整合完成: {ninja_name}")
             return result
         except Exception as e:
-            import traceback
             logger.error(f"详细页爬取忍者信息出错: {e}\n{traceback.format_exc()}")
             return "查询忍者信息时发生错误，请稍后再试。"
 
     # 新增：带头像url和奥义视频url的详细信息获取
-    def get_ninja_info_with_avatar_and_ayvideo(self, ninja_name: str):
-        rzwyID = self.get_ninja_id(ninja_name)
+    async def get_ninja_info_with_avatar_and_ayvideo(self, ninja_name: str):
+        rzwyID = await self.get_ninja_id(ninja_name)
         if not rzwyID:
             return None, None, None
-        import json
         url = f'https://hyrz.qq.com/act/a20221108gjx/ninja-data/{rzwyID}.json'
         try:
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
                 "Referer": "https://hyrz.qq.com/cp/a20230308ren/index.shtml"
             }
-            response = requests.get(url, headers=headers, timeout=10)
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=headers, timeout=10)
             text = response.text.strip()
             if text.startswith("getNinjaData("):
                 text = text[len("getNinjaData("):-1]
@@ -376,7 +361,6 @@ class NinjaInfoPlugin(Star):
             result += f"\n技能说明：{skill_desc}\n推荐通灵：{'、'.join(tjtls) if tjtls else '无'}\n推荐秘卷：{'、'.join(tjmj) if tjmj else '无'}"
             return result, avatar_url, ay_video_url
         except Exception as e:
-            import traceback
             logger.error(f"详细页爬取忍者信息出错: {e}\n{traceback.format_exc()}")
             return None, None, None
 
